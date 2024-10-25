@@ -4,8 +4,7 @@ A plugin that synchronizes cursor positions between VSCode and JetBrains IDEs.
 
 This is very much a work in progress. Please look at the [issues](https://github.com/andrewgazelka/cursor-sync/issues) for more information.
 
-
-https://github.com/user-attachments/assets/836274f2-8031-4eaf-a67c-feeacc9dd5e2
+https://github.com/user-attachments/assets/acf66818-32f4-4695-9f2c-8486fdba73bc
 
 ## Reasoning
 
