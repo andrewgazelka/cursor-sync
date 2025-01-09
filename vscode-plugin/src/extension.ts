@@ -56,6 +56,45 @@ interface CursorPosition {
 
 let lastJetBrainsCursorPosition: vscode.Position | null = null;
 
+// ステータスバーの状態を管理する型定義
+enum ConnectionStatus {
+    Disconnected,
+    Connected,
+    Error
+}
+
+// ステータスバーを管理するクラス
+class StatusBarManager {
+    public readonly statusBarItem: vscode.StatusBarItem;
+
+    constructor() {
+        this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right);
+        this.updateStatus(ConnectionStatus.Disconnected);
+        this.statusBarItem.show();
+    }
+
+    public updateStatus(status: ConnectionStatus): void {
+        switch (status) {
+            case ConnectionStatus.Connected:
+                this.statusBarItem.text = "$(sync) Cursor Sync";
+                this.statusBarItem.tooltip = "Connected - Syncing cursor position";
+                break;
+            case ConnectionStatus.Disconnected:
+                this.statusBarItem.text = "$(sync-ignored) Cursor Sync";
+                this.statusBarItem.tooltip = "Disconnected";
+                break;
+            case ConnectionStatus.Error:
+                this.statusBarItem.text = "$(error) Cursor Sync";
+                this.statusBarItem.tooltip = "Connection Error";
+                break;
+        }
+    }
+
+    public dispose(): void {
+        this.statusBarItem.dispose();
+    }
+}
+
 export class CursorSyncManager {
     private wsConnection: WebSocket | null = null;
     private wsServer: WebSocket.Server;
@@ -65,30 +104,34 @@ export class CursorSyncManager {
     private isUpdatingCursor: boolean = false;
     private readonly positionThreshold = 250; // ms
     public isWindowFocused = false;
+    public readonly statusBarManager: StatusBarManager = new StatusBarManager();
 
-    private createWebSocketServer(): void {
-        this.wsServer = new WebSocket.Server({port: this.port});
-        this.setupWebSocketServer();
+    private createWebSocketServer(): WebSocket.Server {
+        const wsServer = new WebSocket.Server({port: this.port});
+        this.setupWebSocketServer(wsServer);
         logger.info(`WebSocket server started on port ${this.port}`);
         vscode.window.showInformationMessage('WebSocket server started');
+        return wsServer;
     }
 
     constructor() {
         logger.info('Initializing CursorSyncManager...');
-        this.createWebSocketServer();
+        this.wsServer = this.createWebSocketServer();
     }
 
-    private setupWebSocketServer(): void {
-        this.wsServer.on('connection', this.handleConnection.bind(this));
-        this.wsServer.on('error', (error) => {
+    private setupWebSocketServer(wsServer: WebSocket.Server): void {
+        wsServer.on('connection', this.handleConnection.bind(this));
+        wsServer.on('error', (error) => {
             logger.error('WebSocket server error', error);
             vscode.window.showErrorMessage(`WebSocket Server Error: ${(error as Error).message}`);
+            this.statusBarManager.updateStatus(ConnectionStatus.Error);
         });
     }
 
     private handleConnection(socket: WebSocket): void {
         logger.info('JetBrains IDE connected');
         this.wsConnection = socket;
+        this.statusBarManager.updateStatus(ConnectionStatus.Connected);
 
         socket.on('message', (message: WebSocket.RawData) => {
             this.handleIncomingMessage(message);
@@ -98,11 +141,13 @@ export class CursorSyncManager {
             logger.info('JetBrains IDE disconnected');
             vscode.window.showInformationMessage('JetBrains IDE disconnected');
             this.wsConnection = null;
+            this.statusBarManager.updateStatus(ConnectionStatus.Disconnected);
         });
 
         socket.on('error', (error) => {
             logger.error('WebSocket connection error', error);
             vscode.window.showErrorMessage(`WebSocket Connection Error: ${(error as Error).message}`);
+            this.statusBarManager.updateStatus(ConnectionStatus.Error);
         });
     }
 
@@ -253,6 +298,7 @@ export class CursorSyncManager {
             this.wsConnection.close();
         }
         this.wsServer.close();
+        this.statusBarManager.dispose();
         logger.info('Successfully disposed CursorSyncManager');
     }
 
@@ -263,7 +309,7 @@ export class CursorSyncManager {
             this.wsConnection = null;
         }
         this.wsServer.close(() => {
-            this.createWebSocketServer();
+            this.wsServer = this.createWebSocketServer();
         });
     }
 }
@@ -308,12 +354,6 @@ function registerExtensionFeatures(context: vscode.ExtensionContext): void {
             /* cursor shouldnt be changing! */}
     });
 
-    // Register status bar item
-    const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right);
-    statusBarItem.text = "$(sync) Cursor Sync";
-    statusBarItem.tooltip = "Cursor position is being synced with JetBrains IDE";
-    statusBarItem.show();
-
     // Register commands
     const toggleCommand = vscode.commands.registerCommand('cursor-sync.toggle', () => {
         logger.info('Toggle command executed');
@@ -329,7 +369,7 @@ function registerExtensionFeatures(context: vscode.ExtensionContext): void {
 
     context.subscriptions.push(
         cursorDisposable,
-        statusBarItem,
+        cursorSyncManager!.statusBarManager.statusBarItem,
         toggleCommand,
         restartCommand,
         {
