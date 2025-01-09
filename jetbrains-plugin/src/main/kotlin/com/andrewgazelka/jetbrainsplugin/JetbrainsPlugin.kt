@@ -5,6 +5,7 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.LogicalPosition
+import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.event.CaretEvent
 import com.intellij.openapi.editor.event.CaretListener
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -299,10 +300,15 @@ class CursorSyncPlugin : ProjectActivity {
                     .firstOrNull() as? TextEditor
                     ?: return@runWriteAction.also { logInfo("Could not open editor for file: ${position.file}") }
 
-                editor.editor.caretModel.moveToLogicalPosition(
+                val caretModel = editor.editor.caretModel
+                val scrollingModel = editor.editor.scrollingModel
+
+                caretModel.moveToLogicalPosition(
                     LogicalPosition(position.line, position.character)
                 )
-                logInfo("Successfully moved cursor")
+                scrollingModel.scrollToCaret(ScrollType.CENTER)
+
+                logInfo("Successfully moved cursor and scrolled to position")
             } catch (e: Exception) {
                 logError("Error in runWriteAction", e)
             }
