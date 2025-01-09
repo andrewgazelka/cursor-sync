@@ -16,12 +16,16 @@
   "contributes": {
     "commands": [
       {
-        "command": "cursor-sync.toggle",
-        "title": "Toggle Cursor Sync"
+        "command": "cursor-sync.connect",
+        "title": "Cursor Sync: Connect"
+      },
+      {
+        "command": "cursor-sync.disconnect",
+        "title": "Cursor Sync: Disconnect"
       },
       {
         "command": "cursor-sync.restart",
-        "title": "Restart Cursor Sync WebSocket"
+        "title": "Cursor Sync: Restart WebSocket"
       }
     ]
   },

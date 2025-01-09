@@ -1,14 +1,14 @@
-import * as vscode from 'vscode';
-import WebSocket = require('ws');
+import * as vscode from "vscode";
+import WebSocket = require("ws");
 
 // Create a more descriptive logger with severity levels
 class Logger {
     private channel: vscode.OutputChannel;
     private readonly PREFIX = {
-        INFO: '📘 INFO',
-        WARN: '⚠️ WARN',
-        ERROR: '❌ ERROR',
-        DEBUG: '🔍 DEBUG'
+        INFO: "📘 INFO",
+        WARN: "⚠️ WARN",
+        ERROR: "❌ ERROR",
+        DEBUG: "🔍 DEBUG",
     };
 
     constructor(channelName: string) {
@@ -50,7 +50,7 @@ interface CursorPosition {
     file: string;
     line: number;
     character: number;
-    source: 'vscode' | 'jetbrains';
+    source: "vscode" | "jetbrains";
     timestamp: number;
 }
 
@@ -60,7 +60,7 @@ let lastJetBrainsCursorPosition: vscode.Position | null = null;
 enum ConnectionStatus {
     Disconnected,
     Connected,
-    Error
+    Error,
 }
 
 // ステータスバーを管理するクラス
@@ -68,7 +68,9 @@ class StatusBarManager {
     public readonly statusBarItem: vscode.StatusBarItem;
 
     constructor() {
-        this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right);
+        this.statusBarItem = vscode.window.createStatusBarItem(
+            vscode.StatusBarAlignment.Right,
+        );
         this.updateStatus(ConnectionStatus.Disconnected);
         this.statusBarItem.show();
     }
@@ -77,7 +79,8 @@ class StatusBarManager {
         switch (status) {
             case ConnectionStatus.Connected:
                 this.statusBarItem.text = "$(sync) Cursor Sync";
-                this.statusBarItem.tooltip = "Connected - Syncing cursor position";
+                this.statusBarItem.tooltip =
+                    "Connected - Syncing cursor position";
                 break;
             case ConnectionStatus.Disconnected:
                 this.statusBarItem.text = "$(sync-ignored) Cursor Sync";
@@ -97,7 +100,7 @@ class StatusBarManager {
 
 export class CursorSyncManager {
     private wsConnection: WebSocket | null = null;
-    private wsServer: WebSocket.Server;
+    private wsServer: WebSocket.Server | null = null;
     private readonly port: number = 3000;
     private lastSentPosition: CursorPosition | null = null;
     private lastReceivedPosition: CursorPosition | null = null;
@@ -107,46 +110,50 @@ export class CursorSyncManager {
     public readonly statusBarManager: StatusBarManager = new StatusBarManager();
 
     private createWebSocketServer(): WebSocket.Server {
-        const wsServer = new WebSocket.Server({port: this.port});
+        const wsServer = new WebSocket.Server({ port: this.port });
         this.setupWebSocketServer(wsServer);
         logger.info(`WebSocket server started on port ${this.port}`);
-        vscode.window.showInformationMessage('WebSocket server started');
+        vscode.window.showInformationMessage("WebSocket server started");
         return wsServer;
     }
 
     constructor() {
-        logger.info('Initializing CursorSyncManager...');
-        this.wsServer = this.createWebSocketServer();
+        logger.info("Initializing CursorSyncManager...");
+        this.connect(); // 初期状態で接続を開始
     }
 
     private setupWebSocketServer(wsServer: WebSocket.Server): void {
-        wsServer.on('connection', this.handleConnection.bind(this));
-        wsServer.on('error', (error) => {
-            logger.error('WebSocket server error', error);
-            vscode.window.showErrorMessage(`WebSocket Server Error: ${(error as Error).message}`);
+        wsServer.on("connection", this.handleConnection.bind(this));
+        wsServer.on("error", (error) => {
+            logger.error("WebSocket server error", error);
+            vscode.window.showErrorMessage(
+                `WebSocket Server Error: ${(error as Error).message}`,
+            );
             this.statusBarManager.updateStatus(ConnectionStatus.Error);
         });
     }
 
     private handleConnection(socket: WebSocket): void {
-        logger.info('JetBrains IDE connected');
+        logger.info("JetBrains IDE connected");
         this.wsConnection = socket;
         this.statusBarManager.updateStatus(ConnectionStatus.Connected);
 
-        socket.on('message', (message: WebSocket.RawData) => {
+        socket.on("message", (message: WebSocket.RawData) => {
             this.handleIncomingMessage(message);
         });
 
-        socket.on('close', () => {
-            logger.info('JetBrains IDE disconnected');
-            vscode.window.showInformationMessage('JetBrains IDE disconnected');
+        socket.on("close", () => {
+            logger.info("JetBrains IDE disconnected");
+            vscode.window.showInformationMessage("JetBrains IDE disconnected");
             this.wsConnection = null;
             this.statusBarManager.updateStatus(ConnectionStatus.Disconnected);
         });
 
-        socket.on('error', (error) => {
-            logger.error('WebSocket connection error', error);
-            vscode.window.showErrorMessage(`WebSocket Connection Error: ${(error as Error).message}`);
+        socket.on("error", (error) => {
+            logger.error("WebSocket connection error", error);
+            vscode.window.showErrorMessage(
+                `WebSocket Connection Error: ${(error as Error).message}`,
+            );
             this.statusBarManager.updateStatus(ConnectionStatus.Error);
         });
     }
@@ -154,10 +161,12 @@ export class CursorSyncManager {
     private handleIncomingMessage(message: WebSocket.RawData): void {
         try {
             const cursorData: CursorPosition = JSON.parse(message.toString());
-            logger.debug(`Received cursor update: ${JSON.stringify(cursorData)}`);
+            logger.debug(
+                `Received cursor update: ${JSON.stringify(cursorData)}`,
+            );
             this.handleCursorUpdate(cursorData);
         } catch (error) {
-            logger.error('Error parsing incoming message', error as Error);
+            logger.error("Error parsing incoming message", error as Error);
         }
     }
 
@@ -170,18 +179,21 @@ export class CursorSyncManager {
             this.lastReceivedPosition.file === newPosition.file;
 
         const isWithinThreshold =
-            newPosition.timestamp - this.lastReceivedPosition.timestamp < this.positionThreshold;
+            newPosition.timestamp - this.lastReceivedPosition.timestamp <
+                this.positionThreshold;
 
         return isSamePosition && isWithinThreshold;
     }
 
-    private async handleCursorUpdate(cursorData: CursorPosition): Promise<void> {
-        if (cursorData.source !== 'jetbrains') {
+    private async handleCursorUpdate(
+        cursorData: CursorPosition,
+    ): Promise<void> {
+        if (cursorData.source !== "jetbrains") {
             return;
         }
 
         if (this.shouldIgnorePosition(cursorData)) {
-            logger.debug('Ignoring duplicate position update within threshold');
+            logger.debug("Ignoring duplicate position update within threshold");
             return;
         }
 
@@ -195,22 +207,26 @@ export class CursorSyncManager {
 
             await this.updateEditorCursor(targetEditor, cursorData);
         } catch (error) {
-            logger.error('Error handling cursor update', error as Error);
+            logger.error("Error handling cursor update", error as Error);
             this.isUpdatingCursor = false;
         }
     }
 
-    private async getOrOpenEditor(file: string): Promise<vscode.TextEditor | undefined> {
+    private async getOrOpenEditor(
+        file: string,
+    ): Promise<vscode.TextEditor | undefined> {
         // First try to find an already open editor
         const allEditors = vscode.window.visibleTextEditors;
-        let targetEditor = allEditors.find(editor => editor.document.uri.fsPath === file);
+        let targetEditor = allEditors.find((editor) =>
+            editor.document.uri.fsPath === file
+        );
 
         if (!targetEditor) {
-            logger.debug('File not open in any editor, attempting to open...');
+            logger.debug("File not open in any editor, attempting to open...");
             try {
                 const document = await vscode.workspace.openTextDocument(file);
                 targetEditor = await vscode.window.showTextDocument(document);
-                logger.debug('Successfully opened file');
+                logger.debug("Successfully opened file");
             } catch (error) {
                 logger.error(`Error opening file: ${file}`, error as Error);
                 return undefined;
@@ -220,8 +236,14 @@ export class CursorSyncManager {
         return targetEditor;
     }
 
-    private async updateEditorCursor(editor: vscode.TextEditor, cursorData: CursorPosition): Promise<void> {
-        const position = new vscode.Position(cursorData.line, cursorData.character);
+    private async updateEditorCursor(
+        editor: vscode.TextEditor,
+        cursorData: CursorPosition,
+    ): Promise<void> {
+        const position = new vscode.Position(
+            cursorData.line,
+            cursorData.character,
+        );
         const selection = new vscode.Selection(position, position);
 
         this.isUpdatingCursor = true;
@@ -229,9 +251,11 @@ export class CursorSyncManager {
             editor.selection = selection;
             editor.revealRange(
                 new vscode.Range(position, position),
-                vscode.TextEditorRevealType.InCenter
+                vscode.TextEditorRevealType.InCenter,
             );
-            logger.debug(`Updated cursor position to line ${cursorData.line}, char ${cursorData.character}`);
+            logger.debug(
+                `Updated cursor position to line ${cursorData.line}, char ${cursorData.character}`,
+            );
         } finally {
             // Ensure flag is reset even if an error occurs
             setTimeout(() => {
@@ -242,21 +266,22 @@ export class CursorSyncManager {
 
     private isSourceFile(file: string): boolean {
         // Ignore output channels, debug consoles, and other special files
-        return !(file.includes('extension-output-') ||
-            file.includes('debug-console') ||
-            file.startsWith('output:') ||
-            file.startsWith('extension:'));
-
+        return !(file.includes("extension-output-") ||
+            file.includes("debug-console") ||
+            file.startsWith("output:") ||
+            file.startsWith("extension:"));
     }
 
     public sendCursorPosition(position: vscode.Position, file: string): void {
         if (this.isUpdatingCursor) {
-            logger.debug('Ignoring local cursor change during programmatic update');
+            logger.debug(
+                "Ignoring local cursor change during programmatic update",
+            );
             return;
         }
 
         if (!this.wsConnection) {
-            logger.warn('No WebSocket connection, cannot send cursor position');
+            logger.warn("No WebSocket connection, cannot send cursor position");
             return;
         }
 
@@ -271,13 +296,15 @@ export class CursorSyncManager {
             file,
             line: position.line,
             character: position.character,
-            source: 'vscode',
-            timestamp: Date.now()
+            source: "vscode",
+            timestamp: Date.now(),
         };
 
         if (this.shouldSendPosition(cursorData)) {
             this.lastSentPosition = cursorData;
-            logger.debug(`Sending cursor position: ${JSON.stringify(cursorData)}`);
+            logger.debug(
+                `Sending cursor position: ${JSON.stringify(cursorData)}`,
+            );
             this.wsConnection.send(JSON.stringify(cursorData));
         }
     }
@@ -293,102 +320,149 @@ export class CursorSyncManager {
     }
 
     public dispose(): void {
-        logger.info('Disposing CursorSyncManager...');
+        logger.info("Disposing CursorSyncManager...");
         if (this.wsConnection) {
             this.wsConnection.close();
         }
-        this.wsServer.close();
+        this.wsServer?.close();
         this.statusBarManager.dispose();
-        logger.info('Successfully disposed CursorSyncManager');
+        logger.info("Successfully disposed CursorSyncManager");
     }
 
     public restartWebSocket(): void {
-        logger.info('Restarting WebSocket server...');
+        logger.info("Restarting WebSocket server...");
+        if (this.wsConnection) {
+            this.wsConnection.close();
+            this.wsConnection = null;
+        }
+        this.wsServer?.close(() => {
+            this.wsServer = this.createWebSocketServer();
+        });
+    }
+
+    public connect(): void {
+        if (this.wsServer) {
+            logger.info("Already connected");
+            return;
+        }
+        logger.info("Connecting WebSocket server...");
+        this.wsServer = this.createWebSocketServer();
+    }
+
+    public disconnect(): void {
+        if (!this.wsServer) {
+            logger.info("Already disconnected");
+            return;
+        }
+        logger.info("Disconnecting WebSocket server...");
         if (this.wsConnection) {
             this.wsConnection.close();
             this.wsConnection = null;
         }
         this.wsServer.close(() => {
-            this.wsServer = this.createWebSocketServer();
+            this.wsServer = null;
+            this.statusBarManager.updateStatus(ConnectionStatus.Disconnected);
+            logger.info("WebSocket server disconnected");
         });
+    }
+
+    public isConnected(): boolean {
+        return this.wsServer !== null;
     }
 }
 
 let cursorSyncManager: CursorSyncManager | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
-    logger.info('Cursor-sync extension is now active!');
+    logger.info("Cursor-sync extension is now active!");
     logger.show();
 
     cursorSyncManager = new CursorSyncManager();
 
-    registerExtensionFeatures(context);
+    registerExtensionFeatures(context, cursorSyncManager);
 }
 
-function registerExtensionFeatures(context: vscode.ExtensionContext): void {
+function registerExtensionFeatures(
+    context: vscode.ExtensionContext,
+    manager: CursorSyncManager,
+): void {
     // Track window focus and last synced position
 
     context.subscriptions.push(
         vscode.window.onDidChangeWindowState((window) => {
-            if (cursorSyncManager) {
-                const wasFocused = cursorSyncManager.isWindowFocused;
-                cursorSyncManager.isWindowFocused = window.focused;
-                logger.debug(`Window focus changed: ${window.focused}`);
-            }
-        })
+            manager.isWindowFocused = window.focused;
+            logger.debug(`Window focus changed: ${window.focused}`);
+        }),
     );
 
     // Register cursor position change handler
-    const cursorDisposable = vscode.window.onDidChangeTextEditorSelection((event) => {
-        if (!cursorSyncManager) return;
+    const cursorDisposable = vscode.window.onDidChangeTextEditorSelection(
+        (event) => {
+            const editor = event.textEditor;
+            const position = editor.selection.active;
+            const file = editor.document.uri.fsPath;
 
-        const editor = event.textEditor;
-        const position = editor.selection.active;
-        const file = editor.document.uri.fsPath;
+            if (manager.isWindowFocused) {
+                // Normal cursor movement when window is focused
+                logger.debug(
+                    `Local cursor moved: ${file} line=${position.line}, char=${position.character}`,
+                );
+                manager.sendCursorPosition(position, file);
+            } else {
+                /* cursor shouldnt be changing! */
+            }
+        },
+    );
 
-        if (cursorSyncManager.isWindowFocused) {
-            // Normal cursor movement when window is focused
-            logger.debug(`Local cursor moved: ${file} line=${position.line}, char=${position.character}`);
-            cursorSyncManager.sendCursorPosition(position, file);
-        } else {
-            /* cursor shouldnt be changing! */}
-    });
+    const connectCommand = vscode.commands.registerCommand(
+        "cursor-sync.connect",
+        () => {
+            logger.info("Connect command executed");
+            manager.connect();
+            vscode.window.showInformationMessage("Cursor Sync: Connected");
+        },
+    );
 
-    // Register commands
-    const toggleCommand = vscode.commands.registerCommand('cursor-sync.toggle', () => {
-        logger.info('Toggle command executed');
-        vscode.window.showInformationMessage('Cursor sync toggled');
-    });
+    const disconnectCommand = vscode.commands.registerCommand(
+        "cursor-sync.disconnect",
+        () => {
+            logger.info("Disconnect command executed");
+            manager.disconnect();
+            vscode.window.showInformationMessage(
+                "Cursor Sync: Disconnected",
+            );
+        },
+    );
 
-    const restartCommand = vscode.commands.registerCommand('cursor-sync.restart', () => {
-        logger.info('Restart command executed');
-        if (cursorSyncManager) {
-            cursorSyncManager.restartWebSocket();
-        }
-    });
+    const restartCommand = vscode.commands.registerCommand(
+        "cursor-sync.restart",
+        () => {
+            logger.info("Restart command executed");
+            manager.restartWebSocket();
+        },
+    );
 
     context.subscriptions.push(
         cursorDisposable,
-        cursorSyncManager!.statusBarManager.statusBarItem,
-        toggleCommand,
+        manager.statusBarManager.statusBarItem,
+        connectCommand,
+        disconnectCommand,
         restartCommand,
         {
             dispose: () => {
-                if (cursorSyncManager) {
-                    cursorSyncManager.dispose();
-                    cursorSyncManager = undefined;
-                }
-                logger.info('Extension disposed');
-            }
-        }
+                manager.dispose();
+                cursorSyncManager = undefined;
+                logger.info("Extension disposed");
+            },
+        },
     );
 }
 
 export function deactivate(): void {
-    logger.info('Deactivating extension...');
+    logger.info("Deactivating extension...");
     if (cursorSyncManager) {
         cursorSyncManager.dispose();
         cursorSyncManager = undefined;
     }
-    logger.info('Extension deactivated');
+    logger.info("Extension deactivated");
 }
