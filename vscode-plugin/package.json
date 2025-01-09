@@ -18,6 +18,10 @@
       {
         "command": "cursor-sync.toggle",
         "title": "Toggle Cursor Sync"
+      },
+      {
+        "command": "cursor-sync.restart",
+        "title": "Restart Cursor Sync WebSocket"
       }
     ]
   },

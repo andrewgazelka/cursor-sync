@@ -66,17 +66,23 @@ export class CursorSyncManager {
     private readonly positionThreshold = 250; // ms
     public isWindowFocused = false;
 
-    constructor() {
-        logger.info('Initializing CursorSyncManager...');
+    private createWebSocketServer(): void {
         this.wsServer = new WebSocket.Server({port: this.port});
         this.setupWebSocketServer();
         logger.info(`WebSocket server started on port ${this.port}`);
+        vscode.window.showInformationMessage('WebSocket server started');
+    }
+
+    constructor() {
+        logger.info('Initializing CursorSyncManager...');
+        this.createWebSocketServer();
     }
 
     private setupWebSocketServer(): void {
         this.wsServer.on('connection', this.handleConnection.bind(this));
         this.wsServer.on('error', (error) => {
             logger.error('WebSocket server error', error);
+            vscode.window.showErrorMessage(`WebSocket Server Error: ${(error as Error).message}`);
         });
     }
 
@@ -90,11 +96,13 @@ export class CursorSyncManager {
 
         socket.on('close', () => {
             logger.info('JetBrains IDE disconnected');
+            vscode.window.showInformationMessage('JetBrains IDE disconnected');
             this.wsConnection = null;
         });
 
         socket.on('error', (error) => {
             logger.error('WebSocket connection error', error);
+            vscode.window.showErrorMessage(`WebSocket Connection Error: ${(error as Error).message}`);
         });
     }
 
@@ -247,6 +255,17 @@ export class CursorSyncManager {
         this.wsServer.close();
         logger.info('Successfully disposed CursorSyncManager');
     }
+
+    public restartWebSocket(): void {
+        logger.info('Restarting WebSocket server...');
+        if (this.wsConnection) {
+            this.wsConnection.close();
+            this.wsConnection = null;
+        }
+        this.wsServer.close(() => {
+            this.createWebSocketServer();
+        });
+    }
 }
 
 let cursorSyncManager: CursorSyncManager | undefined;
@@ -301,10 +320,18 @@ function registerExtensionFeatures(context: vscode.ExtensionContext): void {
         vscode.window.showInformationMessage('Cursor sync toggled');
     });
 
+    const restartCommand = vscode.commands.registerCommand('cursor-sync.restart', () => {
+        logger.info('Restart command executed');
+        if (cursorSyncManager) {
+            cursorSyncManager.restartWebSocket();
+        }
+    });
+
     context.subscriptions.push(
         cursorDisposable,
         statusBarItem,
         toggleCommand,
+        restartCommand,
         {
             dispose: () => {
                 if (cursorSyncManager) {
