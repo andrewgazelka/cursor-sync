@@ -58,3 +58,18 @@ flowchart TB
     class cpos data
     class Motivation,ai,ide,pain,soln motivation
 ```
+
+## Build Instructions
+
+### VSCode Plugin
+1. Navigate to the `vscode-plugin` directory
+2. Run `npx vsce package`
+3. When prompted, respond with 'y'
+4. A file named `cursor-sync-0.0.1.vsix` will be generated
+5. Install by dragging and dropping this file into the extensions panel of your VSCode-compatible editor
+
+### JetBrains Plugin
+1. Navigate to the `jetbrains-plugin` directory
+2. Run `./gradlew buildPlugin`
+3. The plugin will be generated at `build/distributions/jetbrains-plugin-1.0-SNAPSHOT.zip`
+4. Install via "Install Plugin from Disk" in your JetBrains IDE
