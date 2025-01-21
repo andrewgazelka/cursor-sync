@@ -1,5 +1,9 @@
 package com.andrewgazelka.jetbrainsplugin
 
+import com.andrewgazelka.jetbrainsplugin.service.CursorSyncService
+import com.andrewgazelka.jetbrainsplugin.event.OperationEventHandler
+import com.andrewgazelka.jetbrainsplugin.event.StatusEventHandler
+import com.andrewgazelka.jetbrainsplugin.ws.CursorSyncWebSocketClient
 import com.google.gson.Gson
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
@@ -15,15 +19,12 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
-import org.java_websocket.client.WebSocketClient
 import org.java_websocket.handshake.ServerHandshake
 import java.io.File
-import java.net.URI
 import java.util.*
 import kotlin.math.min
 import kotlin.math.pow
 
-private const val WEBSOCKET_URL = "ws://localhost:3000"
 private const val POSITION_THRESHOLD_MS = 250L
 private const val BASE_RECONNECT_DELAY_MS = 1000L
 private const val MAX_RECONNECT_DELAY_MS = 30000L
@@ -37,23 +38,27 @@ data class CursorPosition(
     val timestamp: Long = System.currentTimeMillis()
 )
 
-
-class CursorSyncPlugin : ProjectActivity {
+class CursorSyncPlugin : ProjectActivity, OperationEventHandler {
     private var lastPosition: CursorPosition? = null
     private var lastReceivedPosition: CursorPosition? = null
     private val isWindowFocused get() = ApplicationManager.getApplication().isActive
-    private lateinit var wsClient: WebSocketClient
+    private lateinit var wsClient: CursorSyncWebSocketClient
     private val editorListeners = mutableMapOf<VirtualFile, CaretListener>()
     private lateinit var project: Project
     private var reconnectAttempt = 0
     private var reconnectJob: Timer? = null
 
+    private lateinit var service: CursorSyncService
 
     override suspend fun execute(project: Project) {
         this.project = project
+        this.service = project.getService(CursorSyncService::class.java)
+        project.messageBus.connect().subscribe(
+            topic = service.operationTopic,
+            handler = this,
+        )
         initializePlugin()
     }
-
 
     private fun initializePlugin() {
         resetReconnectAttempts()
@@ -82,11 +87,14 @@ class CursorSyncPlugin : ProjectActivity {
         }
     }
 
-    private fun scheduleReconnect() {
+    private fun scheduleReconnect(isZeroStart: Boolean = false) {
         reconnectJob?.cancel()
         reconnectJob = Timer().apply {
-            val delay = calculateReconnectDelay()
+            val delay = calculateReconnectDelay(isZeroStart)
             logInfo("Scheduling reconnect attempt ${reconnectAttempt + 1} in ${delay}ms")
+            onStatusChanged(
+                status = StatusEventHandler.Status.Connecting(attempts = reconnectAttempt),
+            )
 
             schedule(object : TimerTask() {
                 override fun run() {
@@ -99,7 +107,8 @@ class CursorSyncPlugin : ProjectActivity {
         }
     }
 
-    private fun calculateReconnectDelay(): Long {
+    private fun calculateReconnectDelay(isZeroStart: Boolean): Long {
+        if (reconnectAttempt == 0 && isZeroStart) return 100L
         val exponentialDelay =
             BASE_RECONNECT_DELAY_MS * (2.0.pow(min(reconnectAttempt, MAX_RECONNECT_ATTEMPTS)).toLong())
         return min(exponentialDelay, MAX_RECONNECT_DELAY_MS)
@@ -114,7 +123,7 @@ class CursorSyncPlugin : ProjectActivity {
     private fun connectWebSocket() {
         logInfo("Attempting to connect WebSocket... (Attempt ${reconnectAttempt + 1})")
 
-        wsClient = object : WebSocketClient(URI(WEBSOCKET_URL)) {
+        wsClient = object : CursorSyncWebSocketClient() {
             override fun onOpen(handshake: ServerHandshake?) {
                 handleWebSocketOpen()
             }
@@ -135,6 +144,9 @@ class CursorSyncPlugin : ProjectActivity {
 
     private fun handleWebSocketOpen() {
         logInfo("WebSocket Connected Successfully!")
+        onStatusChanged(
+            status = StatusEventHandler.Status.Connected,
+        )
         notifyUser("Connected to VS Code", NotificationType.INFORMATION)
         resetReconnectAttempts()
     }
@@ -171,13 +183,20 @@ class CursorSyncPlugin : ProjectActivity {
 
     private fun handleWebSocketClose(code: Int, reason: String?, remote: Boolean) {
         logInfo("WebSocket Connection Closed. Code: $code, Reason: $reason, Remote: $remote")
-        notifyUser("Disconnected from VS Code", NotificationType.WARNING)
-        scheduleReconnect()
+        onStatusChanged(
+            status = StatusEventHandler.Status.Disconnected
+        )
+        if (wsClient.isOpened) {
+            notifyUser("Disconnected from VS Code", NotificationType.WARNING)
+        }
+        if (!wsClient.isManuallyDisconnect) scheduleReconnect()
     }
 
     private fun handleWebSocketError(ex: Exception?) {
         logError("WebSocket Error", ex)
-        notifyUser("WebSocket error: ${ex?.message}", NotificationType.ERROR)
+        if (wsClient.isOpened) {
+            notifyUser("WebSocket error: ${ex?.message}", NotificationType.ERROR)
+        }
     }
 
     private fun setupEditorListeners() {
@@ -298,7 +317,10 @@ class CursorSyncPlugin : ProjectActivity {
                 val editor = FileEditorManager.getInstance(project)
                     .openFile(virtualFile, true)
                     .firstOrNull() as? TextEditor
-                    ?: return@runWriteAction.also { logInfo("Could not open editor for file: ${position.file}") }
+                    ?: run {
+                        logInfo("Could not open editor for file: ${position.file}")
+                        return@runWriteAction
+                    }
 
                 val caretModel = editor.editor.caretModel
                 val scrollingModel = editor.editor.scrollingModel
@@ -322,5 +344,24 @@ class CursorSyncPlugin : ProjectActivity {
     private fun logError(message: String, e: Exception? = null) {
         println("CursorSync Error: $message")
         e?.printStackTrace()
+    }
+
+    private fun onStatusChanged(status: StatusEventHandler.Status) {
+        project.messageBus.syncPublisher(topic = service.statusTopic).onStatusChanged(
+            status = status
+        )
+    }
+
+
+    override fun toggle() {
+        if (wsClient.isOpen || reconnectJob != null) {
+            resetReconnectAttempts()
+            wsClient.isManuallyDisconnect = true
+            wsClient.close()
+            onStatusChanged(status = StatusEventHandler.Status.Disconnected)
+        } else {
+            resetReconnectAttempts()
+            scheduleReconnect(isZeroStart = true)
+        }
     }
 }

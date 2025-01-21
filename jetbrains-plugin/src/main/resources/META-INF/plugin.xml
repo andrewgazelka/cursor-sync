@@ -28,5 +28,7 @@
     <postStartupActivity implementation="com.andrewgazelka.jetbrainsplugin.CursorSyncPlugin"/>
     <notificationGroup id="Cursor Sync Notifications"
                        displayType="BALLOON"/>
+    <projectService serviceImplementation="com.andrewgazelka.jetbrainsplugin.service.CursorSyncService"/>
+    <statusBarWidgetFactory implementation="com.andrewgazelka.jetbrainsplugin.widgets.CursorSyncWidgetFactory"/>
   </extensions>
 </idea-plugin>
