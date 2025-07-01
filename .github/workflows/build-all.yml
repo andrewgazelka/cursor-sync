@@ -1,0 +1,121 @@
+name: Build All Plugins
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-jetbrains:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+    
+    - name: Grant execute permission for gradlew
+      run: chmod +x jetbrains-plugin/gradlew
+      
+    - name: Build plugin
+      run: ./gradlew buildPlugin
+      working-directory: jetbrains-plugin
+      
+    - name: Upload JetBrains plugin artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: jetbrains-plugin
+        path: jetbrains-plugin/build/distributions/*.zip
+        if-no-files-found: error
+
+  build-vscode:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        
+    - name: Install dependencies
+      run: npm ci
+      working-directory: vscode-plugin
+      
+    - name: Compile extension
+      run: npm run compile
+      working-directory: vscode-plugin
+      
+    - name: Install vsce
+      run: npm install -g @vscode/vsce
+      
+    - name: Package extension
+      run: vsce package
+      working-directory: vscode-plugin
+      
+    - name: Upload VSCode extension artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: vscode-extension
+        path: vscode-plugin/*.vsix
+        if-no-files-found: error
+
+  create-release:
+    needs: [build-jetbrains, build-vscode]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    permissions:
+      contents: write  # Required for creating releases
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download JetBrains artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: jetbrains-plugin
+        path: ./artifacts
+        
+    - name: Download VSCode artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: vscode-extension
+        path: ./artifacts
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ github.run_number }}
+        name: Cursor Sync Build ${{ github.run_number }}
+        body: |
+          ## Cursor Sync Build ${{ github.run_number }}
+          
+          This release contains both the JetBrains plugin and VSCode extension.
+          
+          ### Installation
+          
+          **JetBrains Plugin:**
+          - Download the `.zip` file
+          - In your JetBrains IDE, go to Settings → Plugins → ⚙️ → Install Plugin from Disk
+          - Select the downloaded `.zip` file
+          
+          **VSCode Extension:**
+          - Download the `.vsix` file
+          - In VSCode, run command: `Extensions: Install from VSIX...`
+          - Select the downloaded `.vsix` file
+          
+          ### Changes
+          Commit: ${{ github.sha }}
+        draft: false
+        prerelease: false
+        files: |
+          ./artifacts/*.zip
+          ./artifacts/*.vsix
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

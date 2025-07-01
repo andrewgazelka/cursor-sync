@@ -3,6 +3,11 @@
   "displayName": "cursor-sync",
   "description": "Synchronize cursor position between VS Code and JetBrains IDEs",
   "version": "0.0.1",
+  "publisher": "cursor-sync",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AndrewGazelka/cursor-sync"
+  },
   "engines": {
     "vscode": "^1.93.0"
   },
